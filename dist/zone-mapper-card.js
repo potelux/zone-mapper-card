@@ -239,6 +239,18 @@ class ZoneMapperCard extends HTMLElement {
       this.darkMode = !!config.dark_mode;
     }
 
+    // Optional Inovelli ZHA direct-cluster sync.
+    // Config: mmwave_device: { ieee: "xx:xx:xx:xx:xx:xx:xx:xx", endpoint_id: 1 }
+    const mmDev = config.mmwave_device;
+    if (mmDev && typeof mmDev.ieee === 'string' && mmDev.ieee.trim()) {
+      this._mmwaveDevice = {
+        ieee: mmDev.ieee.trim(),
+        endpoint_id: Number.isFinite(Number(mmDev.endpoint_id)) ? Number(mmDev.endpoint_id) : 1,
+      };
+    } else {
+      this._mmwaveDevice = null;
+    }
+
     this._applyGridConfig(config.grid);
     this._applyConeConfig(config.cone);
 
@@ -1406,6 +1418,11 @@ class ZoneMapperCard extends HTMLElement {
       data,
       entities: this.trackedEntities.filter((p) => p.x && p.y),
     });
+    // For Inovelli devices: push rect bounds directly to the mmWave detection
+    // zone via ZHA cluster write, since the number entities are unavailable.
+    if (shape === DRAW_MODES.RECT) {
+      this._syncInovelliZone(data);
+    }
   }
 
   updateZonesFromEntities() {
@@ -2525,6 +2542,35 @@ class ZoneMapperCard extends HTMLElement {
       this.trackedEntities = [];
     }
     return false;
+  }
+
+  // Sync a rect zone's bounds directly to the Inovelli device's mmWave detection
+  // zone via zha.set_zigbee_cluster_attribute, bypassing the unavailable number
+  // entities. Zone-mapper stores coordinates in mm; the device expects cm (÷10).
+  //
+  // Attribute mapping in cluster 0xFC32 (64562):
+  //   103 → X-Axis Minimum (width left)   = x_min
+  //   104 → X-Axis Maximum (width right)  = x_max
+  //   105 → Y-Axis Minimum (depth near)   = y_min
+  //   106 → Y-Axis Maximum (depth far)    = y_max
+  _syncInovelliZone(data) {
+    if (!this._mmwaveDevice || !this._hass) return;
+    if (!data || data.x_min == null || data.x_max == null || data.y_min == null || data.y_max == null) return;
+
+    const { ieee, endpoint_id } = this._mmwaveDevice;
+    const mmToCm = (mm) => Math.round(mm / 10);
+    const base = { ieee, endpoint_id, cluster_id: 64562, cluster_type: 'in' };
+
+    const writes = [
+      { attribute: 103, value: mmToCm(data.x_min) },
+      { attribute: 104, value: mmToCm(data.x_max) },
+      { attribute: 105, value: mmToCm(data.y_min) },
+      { attribute: 106, value: mmToCm(data.y_max) },
+    ];
+
+    writes.forEach(({ attribute, value }) => {
+      this._hass.callService('zha', 'set_zigbee_cluster_attribute', { ...base, attribute, value });
+    });
   }
 
   // Apply device-specific grid defaults when a known device type is selected.
