@@ -65,7 +65,7 @@ from zhaquirks.inovelli import (
     QuirkBuilder("Inovelli", "VZM35-SN")
     .replaces_endpoint(1, device_type=zha.DeviceType.DIMMABLE_LIGHT)
     .replace_cluster_occurrences(InovelliVZM35SNCluster)
-    .adds_to_endpoint(1, InovelliVZM32SNMMWaveCluster)
+    .replace_cluster_occurrences(InovelliVZM32SNMMWaveCluster)
     .replaces_endpoint(3, device_type=zha.DeviceType.DIMMER_SWITCH)
     .replaces(InovelliVZM35SNCluster, endpoint_id=2, cluster_type=ClusterType.Client)
     .replaces(InovelliVZM35SNCluster, endpoint_id=3, cluster_type=ClusterType.Client)
