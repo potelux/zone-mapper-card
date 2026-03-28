@@ -141,6 +141,8 @@ class ZoneMapperCard extends HTMLElement {
     this._activeInput = null;
     this.trackedEntities = [];
     this._selectedDeviceId = null;
+    this._mmwaveIEEE = null;
+    this._mmwaveEndpointId = 1;
     this.showZones = false;
     this.showConfig = false;
     this.showDeviceTargets = false;
@@ -2415,6 +2417,23 @@ class ZoneMapperCard extends HTMLElement {
       }
     });
 
+    // For Inovelli devices: hide the X/Y entity pairs — coordinates are not
+    // available. Show an info message and hide the Add/Apply buttons instead.
+    const addPairBtn = this.shadowRoot?.getElementById('btnAddPair');
+    const applyBtn = this.shadowRoot?.getElementById('btnApplyEntities');
+    if (this._mmwaveIEEE) {
+      pairsDiv.innerHTML =
+        '<p style="margin:6px 0;font-size:12px;opacity:0.8;">' +
+        'This device uses on-device zone detection. Draw a rectangle to set ' +
+        'the detection area — it will be pushed to the device automatically.' +
+        '</p>';
+      if (addPairBtn) addPairBtn.style.display = 'none';
+      if (applyBtn) applyBtn.style.display = 'none';
+      return;
+    }
+    if (addPairBtn) addPairBtn.style.display = '';
+    if (applyBtn) applyBtn.style.display = '';
+
     // Build options for entities belonging to selected device (sensors only)
     const deviceEntities = (this._allEntities || []).filter(
       (e) => !this._selectedDeviceId || e.device_id === this._selectedDeviceId,
@@ -2554,10 +2573,11 @@ class ZoneMapperCard extends HTMLElement {
   //   105 → Y-Axis Minimum (depth near)   = y_min
   //   106 → Y-Axis Maximum (depth far)    = y_max
   _syncInovelliZone(data) {
-    if (!this._mmwaveDevice || !this._hass) return;
+    // IEEE is auto-detected from device registry; YAML mmwave_device.ieee is a fallback.
+    const ieee = this._mmwaveIEEE || this._mmwaveDevice?.ieee;
+    const endpoint_id = this._mmwaveEndpointId ?? this._mmwaveDevice?.endpoint_id ?? 1;
+    if (!ieee || !this._hass) return;
     if (!data || data.x_min == null || data.x_max == null || data.y_min == null || data.y_max == null) return;
-
-    const { ieee, endpoint_id } = this._mmwaveDevice;
     const mmToCm = (mm) => Math.round(mm / 10);
     const base = { ieee, endpoint_id, cluster_id: 64562, cluster_type: 'in' };
 
@@ -2586,7 +2606,16 @@ class ZoneMapperCard extends HTMLElement {
       this.yMin = 0;
       this.yMax = 6000;
       this.coneYMax = 6000;
+      // Auto-extract IEEE address from ZHA device identifiers so the user
+      // does not need to specify it manually in the card YAML config.
+      const identifiers = Array.isArray(device.identifiers) ? device.identifiers : [];
+      const zhaEntry = identifiers.find((id) => Array.isArray(id) && id[0] === 'zha');
+      this._mmwaveIEEE = zhaEntry ? zhaEntry[1] : (this._mmwaveDevice?.ieee ?? null);
+      this._mmwaveEndpointId = this._mmwaveDevice?.endpoint_id ?? 1;
       this.drawGrid();
+    } else {
+      this._mmwaveIEEE = null;
+      this._mmwaveEndpointId = 1;
     }
   }
 
