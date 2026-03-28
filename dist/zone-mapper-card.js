@@ -2387,6 +2387,7 @@ class ZoneMapperCard extends HTMLElement {
         if (device.id !== this._selectedDeviceId) {
           this._selectedDeviceId = device.id;
           this._suggestPairsFromDevice(true);
+          this._applyDeviceGridDefaults(device);
           this._renderEntitySelection();
         }
       } else if (!val) {
@@ -2455,23 +2456,45 @@ class ZoneMapperCard extends HTMLElement {
     const list = (this._allEntities || []).filter(
       (e) => e.device_id === this._selectedDeviceId && (e.entity_id || ''),
     );
-    const xs = list.filter(
-      (e) => /(^|[_-])x(\b|[_-])/.test(e.entity_id) || /_x$/.test(e.entity_id),
-    );
-    const ys = list.filter(
-      (e) => /(^|[_-])y(\b|[_-])/.test(e.entity_id) || /_y$/.test(e.entity_id),
-    );
     const pairs = [];
     const used = new Set();
-    // Try to pair by replacing x->y in name
-    xs.forEach((xe) => {
-      const guessY = xe.entity_id.replace(/x(?!.*x)/, 'y').replace(/_x(?!.*_x)/, '_y');
-      const ye = list.find((e) => e.entity_id === guessY) || ys.find((e) => !used.has(e.entity_id));
-      if (ye) {
-        used.add(ye.entity_id);
-        pairs.push({ x: xe.entity_id, y: ye.entity_id });
-      }
-    });
+
+    // Strategy 1 (Inovelli / Z2MQTT style): _x_coordinate / _y_coordinate suffix.
+    // Entities like sensor.<name>_target_1_x_coordinate are paired with
+    // sensor.<name>_target_1_y_coordinate by direct suffix substitution.
+    const xCoordEntities = list
+      .filter((e) => /_x_coordinate$/.test(e.entity_id))
+      .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
+    if (xCoordEntities.length > 0) {
+      xCoordEntities.forEach((xe) => {
+        const guessY = xe.entity_id.replace(/_x_coordinate$/, '_y_coordinate');
+        const ye = list.find((e) => e.entity_id === guessY);
+        if (ye && !used.has(ye.entity_id)) {
+          used.add(xe.entity_id);
+          used.add(ye.entity_id);
+          pairs.push({ x: xe.entity_id, y: ye.entity_id });
+        }
+      });
+    }
+
+    if (pairs.length === 0) {
+      // Strategy 2: generic _x / _y suffix or _x_ / _y_ infix matching.
+      const xs = list.filter(
+        (e) => !used.has(e.entity_id) && (/(^|[_-])x(\b|[_-])/.test(e.entity_id) || /_x$/.test(e.entity_id)),
+      );
+      const ys = list.filter(
+        (e) => !used.has(e.entity_id) && (/(^|[_-])y(\b|[_-])/.test(e.entity_id) || /_y$/.test(e.entity_id)),
+      );
+      // Try to pair by replacing x->y in name
+      xs.forEach((xe) => {
+        const guessY = xe.entity_id.replace(/x(?!.*x)/, 'y').replace(/_x(?!.*_x)/, '_y');
+        const ye = list.find((e) => e.entity_id === guessY) || ys.find((e) => !used.has(e.entity_id));
+        if (ye) {
+          used.add(ye.entity_id);
+          pairs.push({ x: xe.entity_id, y: ye.entity_id });
+        }
+      });
+    }
     // Fallback: take numeric-looking entities two by two
     if (pairs.length === 0) {
       const numeric = list
@@ -2502,6 +2525,23 @@ class ZoneMapperCard extends HTMLElement {
       this.trackedEntities = [];
     }
     return false;
+  }
+
+  // Apply device-specific grid defaults when a known device type is selected.
+  // Currently handles Inovelli mmWave switches (VZM35-SN, LD2410 chip):
+  //   X: ±6000 mm, Y: 0–6000 mm.
+  _applyDeviceGridDefaults(device) {
+    if (!device) return;
+    const manufacturer = (device.manufacturer || '').toLowerCase();
+    const model = (device.model || '').toLowerCase();
+    if (manufacturer.includes('inovelli') || model.includes('vzm35')) {
+      this.xMin = -6000;
+      this.xMax = 6000;
+      this.yMin = 0;
+      this.yMax = 6000;
+      this.coneYMax = 6000;
+      this.drawGrid();
+    }
   }
 
   _notify(message) {
