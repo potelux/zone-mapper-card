@@ -1413,13 +1413,19 @@ class ZoneMapperCard extends HTMLElement {
     if (!this._hass) return;
     const numericZoneId = Number(zoneId);
     if (!Number.isFinite(numericZoneId) || numericZoneId <= 0) return;
-    this._hass.callService('zone_mapper', 'update_zone', {
+    const ieee = this._mmwaveIEEE || this._mmwaveDevice?.ieee;
+    const payload = {
       location: this.location,
       zone_id: numericZoneId,
       shape,
       data,
       entities: this.trackedEntities.filter((p) => p.x && p.y),
-    });
+    };
+    if (ieee) {
+      const endpointId = this._mmwaveEndpointId ?? this._mmwaveDevice?.endpoint_id ?? 1;
+      payload.zha_device = { ieee, endpoint_id: endpointId };
+    }
+    this._hass.callService('zone_mapper', 'update_zone', payload);
     // For Inovelli devices: push rect bounds directly to the mmWave detection
     // zone via ZHA cluster write, since the number entities are unavailable.
     if (shape === DRAW_MODES.RECT) {

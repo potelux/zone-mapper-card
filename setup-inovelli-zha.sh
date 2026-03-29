@@ -14,7 +14,8 @@
 # After running:
 #   1. Restart Home Assistant  (ha core restart)
 #   2. In ZHA: Settings → Devices & Services → ZHA → your device → Reconfigure
-#   3. Hard-refresh your browser
+#   3. Open Zone Mapper card, select your device, draw zones
+#   4. Hard-refresh your browser
 
 set -euo pipefail
 
@@ -95,47 +96,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Add template binary sensors for per-area occupancy
-# ---------------------------------------------------------------------------
-section "Adding template binary sensors"
-
-TEMPLATE_BLOCK="
-template:
-  - trigger:
-      - platform: event
-        event_type: zha_event
-        event_data:
-          device_ieee: \"${DEVICE_IEEE}\"
-          command: \"mmwave_anyone_in_area\"
-    binary_sensor:
-      - name: \"mmWave Area 1 Occupied\"
-        unique_id: mmwave_area1_occupied_${DEVICE_IEEE}
-        state: \"{{ trigger.event.data.args.area1 == 1 }}\"
-        device_class: occupancy
-      - name: \"mmWave Area 2 Occupied\"
-        unique_id: mmwave_area2_occupied_${DEVICE_IEEE}
-        state: \"{{ trigger.event.data.args.area2 == 1 }}\"
-        device_class: occupancy
-      - name: \"mmWave Area 3 Occupied\"
-        unique_id: mmwave_area3_occupied_${DEVICE_IEEE}
-        state: \"{{ trigger.event.data.args.area3 == 1 }}\"
-        device_class: occupancy
-      - name: \"mmWave Area 4 Occupied\"
-        unique_id: mmwave_area4_occupied_${DEVICE_IEEE}
-        state: \"{{ trigger.event.data.args.area4 == 1 }}\"
-        device_class: occupancy"
-
-TEMPLATE_MARKER="mmwave_anyone_in_area"
-
-if grep -q "$TEMPLATE_MARKER" "$CONFIG_YAML"; then
-  echo "  Template sensors already present — skipping"
-else
-  echo "$TEMPLATE_BLOCK" >> "$CONFIG_YAML"
-  echo "  Added per-area occupancy sensors to configuration.yaml"
-fi
-
-# ---------------------------------------------------------------------------
-# 4. Done
+# 3. Done
 # ---------------------------------------------------------------------------
 section "Done"
 echo "Quirk files installed to:  ${QUIRK_DIR}"
@@ -145,10 +106,8 @@ echo "Next steps:"
 echo "  1. Restart Home Assistant:    ha core restart"
 echo "  2. Reconfigure the device:    Settings → Devices & Services → ZHA"
 echo "                                → your Inovelli device → Reconfigure"
-echo "  3. The following binary sensors will appear after the first presence event:"
-echo "       binary_sensor.mmwave_area_1_occupied"
-echo "       binary_sensor.mmwave_area_2_occupied"
-echo "       binary_sensor.mmwave_area_3_occupied"
-echo "       binary_sensor.mmwave_area_4_occupied"
+echo "  3. Open the Zone Mapper card, select your Inovelli device, and draw zones."
+echo "     Presence binary sensors update automatically as targets are detected."
 echo ""
-echo "  Note: Sensors show 'unavailable' until the first presence change after restart."
+echo "  Note: Zone Mapper listens for mmwave_target_info ZHA events directly."
+echo "        Presence sensors show 'off' until a target enters a defined zone."
