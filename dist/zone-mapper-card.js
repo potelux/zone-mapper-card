@@ -143,6 +143,8 @@ class ZoneMapperCard extends HTMLElement {
     this._selectedDeviceId = null;
     this._mmwaveIEEE = null;
     this._mmwaveEndpointId = 1;
+    this._zhaTargets = new Map();  // target_num → {x_mm, y_mm, ts}
+    this._zhaEventUnsub = null;
     this.showZones = false;
     this.showConfig = false;
     this.showDeviceTargets = false;
@@ -1756,6 +1758,16 @@ class ZoneMapperCard extends HTMLElement {
       const rotated = rotatePoint(xVal, yVal);
       this.drawCurrentPosition(rotated.x, rotated.y, colors[idx % colors.length]);
     });
+
+    // Draw ZHA-sourced targets (Inovelli mmwave_target_info events)
+    const ZHA_TTL_MS = 5000;
+    const now = Date.now();
+    this._zhaTargets.forEach((target, targetNum) => {
+      if (now - target.ts > ZHA_TTL_MS) return;
+      if (target.x === 0 && target.y === 0) return;
+      const rotated = rotatePoint(target.x, target.y);
+      this.drawCurrentPosition(rotated.x, rotated.y, colors[targetNum % colors.length]);
+    });
   }
 
   drawZones() {
@@ -2269,6 +2281,11 @@ class ZoneMapperCard extends HTMLElement {
 
   disconnectedCallback() {
     this._detachGlobalListeners();
+    if (this._zhaEventUnsub) {
+      this._zhaEventUnsub();
+      this._zhaEventUnsub = null;
+    }
+    this._zhaTargets.clear();
   }
 
   _detachGlobalListeners() {
@@ -2618,10 +2635,41 @@ class ZoneMapperCard extends HTMLElement {
       const zhaEntry = identifiers.find((id) => Array.isArray(id) && id[0] === 'zha');
       this._mmwaveIEEE = zhaEntry ? zhaEntry[1] : (this._mmwaveDevice?.ieee ?? null);
       this._mmwaveEndpointId = this._mmwaveDevice?.endpoint_id ?? 1;
+      this._subscribeZhaEvents(this._mmwaveIEEE);
       this.drawGrid();
     } else {
       this._mmwaveIEEE = null;
       this._mmwaveEndpointId = 1;
+      this._subscribeZhaEvents(null);
+    }
+  }
+
+  async _subscribeZhaEvents(ieee) {
+    // Tear down any existing subscription first
+    if (this._zhaEventUnsub) {
+      this._zhaEventUnsub();
+      this._zhaEventUnsub = null;
+    }
+    this._zhaTargets.clear();
+    if (!ieee || !this._hass?.connection) return;
+    try {
+      this._zhaEventUnsub = await this._hass.connection.subscribeEvents((event) => {
+        const d = event.data || {};
+        if (d.device_ieee !== ieee || d.command !== 'mmwave_target_info') return;
+        const args = d.args || {};
+        const targetNum = args.target_num;
+        const xCm = args.x;
+        const yCm = args.y;
+        if (targetNum == null || xCm == null || yCm == null) return;
+        this._zhaTargets.set(Number(targetNum), {
+          x: Number(xCm) * 10,
+          y: Number(yCm) * 10,
+          ts: Date.now(),
+        });
+        this.drawGrid();
+      }, 'zha_event');
+    } catch (err) {
+      // ZHA may not be installed; silently ignore subscription failures
     }
   }
 
